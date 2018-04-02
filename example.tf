@@ -101,12 +101,10 @@ EOF
 }
 
 resource "aws_instance" "example" {
-//  ami           = "ami-2757f631"
-  ami = "ami-26ebbc5c"
+  ami           = "ami-2757f631"
   instance_type = "t2.micro"
   iam_instance_profile = "${aws_iam_instance_profile.tweets_ec2_profile.id}"
   key_name = "banana"
-//  security_groups = ["aws_security_group.allow_ssh_in_all_out"]
   vpc_security_group_ids = ["${aws_security_group.twitter_ingress.id}"]
 
   tags {
