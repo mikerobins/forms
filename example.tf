@@ -77,6 +77,32 @@ resource "aws_iam_role" "tweets_iam_role" {
 EOF
 }
 
+resource "aws_iam_role" "kinesis_ingest_iam_role" {
+  name = "kinesis_ingest_iam_role"
+
+  assume_role_policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "Service": [
+                "ec2.amazonaws.com"
+              ]
+            },
+            "Effect": "Allow",
+            "Sid": ""
+        }
+    ]
+}
+EOF
+}
+
+resource "aws_iam_instance_profile" "kinesis_ingest_ec2_profile" {
+   name = "kinesis_ingest_ec2_profile"
+   role = "kinesis_ingest_iam_role"
+}
 
 resource "aws_iam_instance_profile" "tweets_ec2_profile" {
    name = "tweets_ec2_profile"
@@ -92,7 +118,9 @@ resource "aws_iam_role_policy" "tweets_iam_role_policy" {
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": "s3:*",
+      "Action": [
+        "kinesis:PutRecord"
+      ],
       "Resource": "*"
     }
   ]
@@ -100,10 +128,63 @@ resource "aws_iam_role_policy" "tweets_iam_role_policy" {
 EOF
 }
 
-resource "aws_instance" "example" {
-  ami           = "ami-2757f631"
+resource "aws_iam_role_policy" "kinesis_ingest_iam_role_policy" {
+   name = "kinesis_ingest_iam_role_policy"
+   role = "${aws_iam_role.kinesis_ingest_iam_role.id}"
+   policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kinesis:DescribeStream",
+        "kinesis:GetShardIterator",
+        "kinesis:GetRecords",
+	"dynamodb:*",
+	"cloudwatch:PutMetricData",
+        "s3:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_kinesis_stream" "tweet_stream" {
+  name             = "tweet_stream"
+  shard_count      = 1
+  retention_period = 24
+
+  shard_level_metrics = [
+    "IncomingBytes",
+    "OutgoingBytes",
+  ]
+
+  tags {
+    Environment = "test"
+  }
+}
+
+resource "aws_instance" "twitter_api_scrape" {
+  ami           = "ami-26ebbc5c" // RHEL 7.4
+//  ami           = "ami-2757f631" Ubuntu
   instance_type = "t2.micro"
   iam_instance_profile = "${aws_iam_instance_profile.tweets_ec2_profile.id}"
+  key_name = "banana"
+  vpc_security_group_ids = ["${aws_security_group.twitter_ingress.id}"]
+
+  tags {
+    project = "twitter"
+  }
+}
+
+resource "aws_instance" "example" {
+  ami           = "ami-26ebbc5c" // RHEL 7.4
+//  ami           = "ami-2757f631" Ubuntu
+  instance_type = "t2.micro"
+  iam_instance_profile = "${aws_iam_instance_profile.kinesis_ingest_ec2_profile.id}"
   key_name = "banana"
   vpc_security_group_ids = ["${aws_security_group.twitter_ingress.id}"]
 
