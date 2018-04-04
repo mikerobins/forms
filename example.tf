@@ -77,9 +77,29 @@ resource "aws_iam_role" "tweets_iam_role" {
 EOF
 }
 
+resource "aws_iam_role" "kinesis_lamdba_dynamo_role" {
+  name = "kinesis_lamdba_dynamo_role"
+  assume_role_policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": "sts:AssumeRole",
+            "Principal": {
+              "Service": [
+                "lambda.amazonaws.com"
+              ]
+            },
+            "Effect": "Allow",
+            "Sid": ""
+        }
+    ]
+}
+EOF
+}
+
 resource "aws_iam_role" "kinesis_ingest_iam_role" {
   name = "kinesis_ingest_iam_role"
-
   assume_role_policy = <<EOF
 {
     "Version": "2012-10-17",
@@ -192,3 +212,65 @@ resource "aws_instance" "example" {
     project = "twitter"
   }
 }
+
+resource "aws_iam_policy" "lambda_kinesis_dynamo" {
+  name = "lambda_kinesis_dynamo"
+  description = " IAM policy allowing Lamdba to talk to Kinesis and Dynamo"
+  policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Action": [
+                "logs:*",
+                "kinesis:ListStreams",
+                "kinesis:GetShardIterator",
+                "kinesis:GetRecords",
+                "kinesis:DescribeStream",
+                "dynamodb:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}    
+EOF
+}
+
+
+resource "aws_iam_role_policy_attachment" "lambda_kinesis_dynamo" {
+   role = "${aws_iam_role.kinesis_lamdba_dynamo_role.name}"
+   policy_arn = "${aws_iam_policy.lambda_kinesis_dynamo.arn}"
+}
+
+
+resource "aws_dynamodb_table" "tweets-table" {
+  name           = "Tweets"
+  read_capacity  = 5
+  write_capacity = 5
+  hash_key       = "tweet_id"
+
+  attribute {
+    name = "tweet_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "TimeToExist"
+    enabled = false
+  }
+}
+
+
+/*
+resource "aws_lamdba_function" "kinesis_tweet_dynamo_lamdba" {
+  filename = "kinesis_tweet_dynamo_lamdba.zip"
+  function_name = "kinesis_tweet_dynamo_lamdba"
+  handler = "kinesis_tweet_dynamo_lamdba.handler"
+  role = "${aws_iam_role.kinesis_lamdba_dynamo_role.id}"
+  runtime = "nodejs8.1"
+  timeout = 10
+  source_code_hash = "${base64sha256(file("kinesis_tweet_dynamo_lamdba.zip"))}"
+}
+*/
