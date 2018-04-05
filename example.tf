@@ -77,8 +77,8 @@ resource "aws_iam_role" "tweets_iam_role" {
 EOF
 }
 
-resource "aws_iam_role" "kinesis_lamdba_dynamo_role" {
-  name = "kinesis_lamdba_dynamo_role"
+resource "aws_iam_role" "kinesis_lambda_dynamo_role" {
+  name = "kinesis_lambda_dynamo_role"
   assume_role_policy = <<EOF
 {
     "Version": "2012-10-17",
@@ -215,7 +215,7 @@ resource "aws_instance" "example" {
 
 resource "aws_iam_policy" "lambda_kinesis_dynamo" {
   name = "lambda_kinesis_dynamo"
-  description = " IAM policy allowing Lamdba to talk to Kinesis and Dynamo"
+  description = " IAM policy allowing lambda to talk to Kinesis and Dynamo"
   policy = <<EOF
 {
     "Version": "2012-10-17",
@@ -240,7 +240,7 @@ EOF
 
 
 resource "aws_iam_role_policy_attachment" "lambda_kinesis_dynamo" {
-   role = "${aws_iam_role.kinesis_lamdba_dynamo_role.name}"
+   role = "${aws_iam_role.kinesis_lambda_dynamo_role.name}"
    policy_arn = "${aws_iam_policy.lambda_kinesis_dynamo.arn}"
 }
 
@@ -262,15 +262,36 @@ resource "aws_dynamodb_table" "tweets-table" {
   }
 }
 
-
-/*
-resource "aws_lamdba_function" "kinesis_tweet_dynamo_lamdba" {
-  filename = "kinesis_tweet_dynamo_lamdba.zip"
-  function_name = "kinesis_tweet_dynamo_lamdba"
-  handler = "kinesis_tweet_dynamo_lamdba.handler"
-  role = "${aws_iam_role.kinesis_lamdba_dynamo_role.id}"
-  runtime = "nodejs8.1"
-  timeout = 10
-  source_code_hash = "${base64sha256(file("kinesis_tweet_dynamo_lamdba.zip"))}"
+data "archive_file" "kinesis_tweet_dynamo_lambda" {
+  type = "zip"
+  source_dir = "./lambdas/kinesis_tweet_dynamo_lambda"
+  output_path = "./lambdas/kinesis_tweet_dynamo_lambda/kinesis_tweet_dynamo_lambda.zip"
 }
-*/
+
+resource "aws_lambda_function" "kinesis_tweet_dynamo_lambda" {
+  filename = "${data.archive_file.kinesis_tweet_dynamo_lambda.output_path}"
+  function_name = "kinesis_tweet_dynamo_lambda"
+  handler = "kinesis_tweet_dynamo_lambda.handler"
+  description = "Lambda which takes tweets from Kinesis and stores them in Dynamo"
+  role = "${aws_iam_role.kinesis_lambda_dynamo_role.arn}"
+  runtime = "nodejs6.10"
+  timeout = 20
+  source_code_hash = "${base64sha256(file("${data.archive_file.kinesis_tweet_dynamo_lambda.output_path}"))}"
+ // source_code_hash = "${data.archive_file.kinesis_tweet_dynamo_lambda.output_base64sha256}"
+
+  environment {
+    variables = {
+      TABLE_NAME = "Tweets"
+    }
+  }
+}
+
+
+resource "aws_lambda_event_source_mapping" "event_source_mapping" {
+  batch_size        = 100
+  event_source_arn  = "${aws_kinesis_stream.tweet_stream.arn}"
+  enabled           = false
+  function_name     = "${aws_lambda_function.kinesis_tweet_dynamo_lambda.arn}"
+  starting_position = "TRIM_HORIZON"
+}
+
